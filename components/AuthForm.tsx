@@ -8,6 +8,7 @@ import { auth } from "@/firebase/client";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useState, useEffect } from "react"; // Added hooks
 
 import {
   createUserWithEmailAndPassword,
@@ -30,6 +31,12 @@ const authFormSchema = (type: FormType) => {
 
 const AuthForm = ({ type }: { type: FormType }) => {
   const router = useRouter();
+  // State to track if the component has mounted to prevent hydration errors
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const formSchema = authFormSchema(type);
   const form = useForm<z.infer<typeof formSchema>>({
@@ -41,17 +48,13 @@ const AuthForm = ({ type }: { type: FormType }) => {
     },
   });
 
+  const { isSubmitting } = form.formState;
+
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     try {
       if (type === "sign-up") {
         const { name, email, password } = data;
-
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const result = await signUp({
           uid: userCredential.user.uid,
           name: name!,
@@ -68,32 +71,27 @@ const AuthForm = ({ type }: { type: FormType }) => {
         router.push("/sign-in");
       } else {
         const { email, password } = data;
-
-        const userCredential = await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const idToken = await userCredential.user.getIdToken();
+        
         if (!idToken) {
           toast.error("Sign in Failed. Please try again.");
           return;
         }
 
-        await signIn({
-          email,
-          idToken,
-        });
-
-        toast.success("Signed in successfully.");
+        await signIn({ email, idToken });
         router.push("/");
+        toast.success("Signed in successfully.");
       }
     } catch (error) {
       console.log(error);
       toast.error(`There was an error: ${error}`);
     }
   };
+
+  // If we haven't mounted yet, return nothing (or a skeleton) 
+  // to avoid the server/client ID mismatch
+  if (!mounted) return null;
 
   const isSignIn = type === "sign-in";
 
@@ -138,8 +136,12 @@ const AuthForm = ({ type }: { type: FormType }) => {
               type="password"
             />
 
-            <Button className="btn" type="submit">
-              {isSignIn ? "Sign In" : "Create an Account"}
+            <Button 
+              className={`btn ${isSubmitting ? "cursor-not-allowed opacity-70" : ""}`} 
+              type="submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Processing..." : (isSignIn ? "Sign In" : "Create an Account")}
             </Button>
           </form>
         </Form>
